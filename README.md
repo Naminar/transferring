@@ -39,7 +39,8 @@ Now you can use it directly anywhere:
 qr-encode -i document.pdf -f mp4
 ```
 
-> **Note:** If your terminal says `command not found: qr-encode`, make sure the `uv` tool directory is in your `PATH` by running:
+> [!NOTE]
+> If your terminal says `command not found: qr-encode`, make sure the `uv` tool directory is in your `PATH` by running:
 > ```bash
 > uv tool update-shell
 > ```
