@@ -4,14 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>QR File Generator</title>
-<!-- Libraries with CDN fallback -->
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-<script>
-  if (typeof QRCode === 'undefined') {
-    document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\/script>');
-  }
-</script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.4/pako.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -52,6 +44,12 @@
     letter-spacing: -0.02em;
   }
   h1 span { color: var(--accent); }
+
+  .status-badge {
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
 
   .dropzone {
     border: 2px dashed var(--border);
@@ -250,6 +248,7 @@
 <body>
 <div class="container">
   <h1><span>📁</span> QR File Generator</h1>
+  <div class="status-badge" id="loader-status">Loading core libraries...</div>
 
   <div class="error-box" id="error-box"></div>
 
@@ -273,7 +272,7 @@
       <div class="segmented" id="density-select">
         <button data-size="450">450 (Fast)</button>
         <button data-size="800" class="active">800 (Balanced)</button>
-        <button data-size="1300">1300 (Dense)</button>
+        <button data-size="1200">1200 (Dense)</button>
       </div>
     </div>
 
@@ -319,6 +318,47 @@
 </div>
 
 <script>
+// Multi-CDN resilient loader
+function loadScriptFromCDNs(urls) {
+  return new Promise((resolve, reject) => {
+    let i = 0;
+    function tryNext() {
+      if (i >= urls.length) return reject(new Error('All CDN sources failed for a required library.'));
+      const s = document.createElement('script');
+      s.src = urls[i++];
+      s.onload = () => resolve();
+      s.onerror = () => { s.remove(); tryNext(); };
+      document.head.appendChild(s);
+    }
+    tryNext();
+  });
+}
+
+let libsReady = false;
+async function initLibraries() {
+  const $loaderStatus = document.getElementById('loader-status');
+  try {
+    await Promise.all([
+      loadScriptFromCDNs([
+        'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
+        'https://unpkg.com/qrcode-generator@1.4.4/qrcode.js',
+        'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js'
+      ]),
+      loadScriptFromCDNs([
+        'https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js',
+        'https://unpkg.com/pako@2.1.0/dist/pako.min.js',
+        'https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js'
+      ])
+    ]);
+    libsReady = true;
+    $loaderStatus.style.display = 'none';
+  } catch (err) {
+    $loaderStatus.textContent = '❌ Failed to load libraries from CDN. Check network/firewall.';
+    $loaderStatus.style.color = '#ef4444';
+  }
+}
+initLibraries();
+
 let content = '';
 let fileName = '';
 let frames = [];
@@ -396,8 +436,8 @@ $btnReset.addEventListener('click', () => { stop(); currentFrame = 0; render(); 
 
 async function handleFile(file) {
   hideError();
-  if (typeof QRCode === 'undefined' || typeof pako === 'undefined') {
-    showError('Error: QRCode or Pako library failed to load. Check internet connection.');
+  if (!libsReady) {
+    showError('Libraries are still loading. Please try again in a moment.');
     return;
   }
 
@@ -467,7 +507,7 @@ function rebuild() {
   render();
 }
 
-async function render() {
+function render() {
   if (!frames.length) return;
 
   const payload = frames[currentFrame];
@@ -478,15 +518,14 @@ async function render() {
   $frameLabel.innerHTML = `Frame <strong>${currentFrame + 1}</strong> / ${frames.length} (chunk #<strong>${idx}</strong> of ${total})`;
 
   try {
-    const url = await QRCode.toDataURL(payload, {
-      errorCorrectionLevel: 'L',
-      margin: 1,
-      width: 320
-    });
-    $qrImage.src = url;
+    // qrcode-generator: auto version (0) with Error Correction 'L'
+    const qr = qrcode(0, 'L');
+    qr.addData(payload);
+    qr.make();
+    $qrImage.src = qr.createDataURL(4, 2);
   } catch (err) {
     console.error(err);
-    showError('QR Code generation error: ' + err.message);
+    showError('QR generation error: ' + err.message);
   }
 }
 
