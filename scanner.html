@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>QR File Scanner</title>
+<!-- Libraries with CDN fallback -->
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<script>
+  if (typeof jsQR === 'undefined') {
+    document.write('<script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"><\/script>');
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.4/pako.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a2e;
+    --surface2: #16213e;
+    --accent: #22c55e;
+    --accent-dim: #166534;
+    --text: #e4e4e7;
+    --text-dim: #71717a;
+    --border: #27272a;
+    --radius: 12px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  h1 {
+    font-size: 20px;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: -0.02em;
+  }
+  h1 span { color: var(--accent); }
+
+  .notice-box {
+    background: #2a1b06;
+    border: 1px solid #d97706;
+    color: #fde68a;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 13px;
+    line-height: 1.4;
+    display: none;
+  }
+  .notice-box.visible { display: block; }
+
+  .camera-area {
+    position: relative;
+    background: var(--surface);
+    border-radius: var(--radius);
+    overflow: hidden;
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--border);
+    transition: border-color 0.2s;
+  }
+  .camera-area.scanning { border-color: var(--accent); }
+  .camera-area.flash { box-shadow: inset 0 0 0 4px var(--accent); }
+
+  #camera-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: none;
+  }
+  #camera-video.active { display: block; }
+
+  .camera-placeholder {
+    color: var(--text-dim);
+    font-size: 14px;
+    text-align: center;
+    padding: 24px;
+    line-height: 1.5;
+  }
+  .camera-placeholder.hidden { display: none; }
+
+  .progress-section {
+    display: none;
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 14px;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .progress-section.visible { display: flex; }
+
+  .progress-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+  }
+  .progress-header .count { font-weight: 500; }
+  .progress-header .count strong { color: var(--accent); }
+  .progress-header .pct { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .progress-bar-track {
+    width: 100%;
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.2s ease;
+  }
+
+  .chunk-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
+    gap: 4px;
+    max-height: 120px;
+    overflow-y: auto;
+    padding-right: 2px;
+  }
+  .chunk-cell {
+    height: 28px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    background: var(--bg);
+  }
+  .chunk-cell.received {
+    background: var(--accent-dim);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .stats-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .stats-row span strong { color: var(--text); }
+
+  .btn-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 1;
+    text-align: center;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .btn:active { background: var(--surface2); }
+  .btn.primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+  .btn.primary:active { background: #1a7a42; }
+  .btn.secondary { background: #1e293b; border-color: #38bdf8; color: #38bdf8; }
+  .btn:disabled { opacity: 0.3; cursor: default; }
+
+  .done-banner {
+    display: none;
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 14px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .done-banner.visible { display: block; }
+
+  #file-capture-input { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>📷</span> QR File Scanner</h1>
+
+  <div class="notice-box" id="notice-box"></div>
+
+  <div class="camera-area" id="camera-area">
+    <!-- playsinline and muted are required for iOS Safari -->
+    <video id="camera-video" playsinline webkit-playsinline muted autoplay></video>
+    <div class="camera-placeholder" id="camera-placeholder">
+      Tap the button below to start camera stream or capture photo
+    </div>
+  </div>
+
+  <canvas id="scan-canvas" style="display: none;"></canvas>
+
+  <div class="done-banner" id="done-banner">
+    ✓ File assembled and downloaded successfully!
+  </div>
+
+  <div class="progress-section" id="progress-section">
+    <div class="progress-header">
+      <span class="count" id="file-title">File: —</span>
+      <span class="pct" id="chunk-pct">0%</span>
+    </div>
+    <div class="progress-header">
+      <span class="count">Chunks: <strong id="chunk-count">0</strong> / <span id="chunk-total">—</span></span>
+    </div>
+    <div class="progress-bar-track">
+      <div class="progress-bar-fill" id="progress-fill"></div>
+    </div>
+    <div class="chunk-grid" id="chunk-grid"></div>
+    <div class="stats-row">
+      <span>Valid: <strong id="stat-valid">0</strong></span>
+      <span>Duplicates: <strong id="stat-dups">0</strong></span>
+      <span>Scanned: <strong id="stat-scanned">0</strong></span>
+    </div>
+  </div>
+
+  <div class="btn-col">
+    <div class="btn-row">
+      <button class="btn primary" id="btn-camera">📹 Live Camera</button>
+    </div>
+
+    <!-- Fallback capture input for iOS file protocol or gallery upload -->
+    <input type="file" id="file-capture-input" accept="image/*">
+    <div class="btn-row">
+      <button class="btn secondary" id="btn-photo">📸 Capture / Upload</button>
+      <button class="btn" id="btn-reset" disabled>🔄 Reset</button>
+    </div>
+
+    <button class="btn" id="btn-download" disabled>📥 Download File</button>
+  </div>
+</div>
+
+<script>
+let stream = null;
+let scanning = false;
+let rafId = null;
+let isComplete = false;
+
+const collected = new Map();
+let expectedTotal = 0;
+let expectedPrefix = '';
+let detectedFilename = 'file.bin';
+let statScanned = 0;
+let statValid = 0;
+let statDups = 0;
+let reconstructedBlob = null;
+
+const $video         = document.getElementById('camera-video');
+const $placeholder   = document.getElementById('camera-placeholder');
+const $cameraArea    = document.getElementById('camera-area');
+const $scanCanvas    = document.getElementById('scan-canvas');
+const $doneBanner    = document.getElementById('done-banner');
+const $progressSec   = document.getElementById('progress-section');
+const $fileTitle     = document.getElementById('file-title');
+const $chunkCount    = document.getElementById('chunk-count');
+const $chunkTotal    = document.getElementById('chunk-total');
+const $chunkPct      = document.getElementById('chunk-pct');
+const $progressFill  = document.getElementById('progress-fill');
+const $chunkGrid     = document.getElementById('chunk-grid');
+const $statScanned   = document.getElementById('stat-scanned');
+const $statValid     = document.getElementById('stat-valid');
+const $statDups      = document.getElementById('stat-dups');
+const $btnCamera     = document.getElementById('btn-camera');
+const $btnPhoto      = document.getElementById('btn-photo');
+const $btnReset      = document.getElementById('btn-reset');
+const $btnDownload   = document.getElementById('btn-download');
+const $noticeBox     = document.getElementById('notice-box');
+const $fileCapture   = document.getElementById('file-capture-input');
+const scanCtx = $scanCanvas.getContext('2d', { willReadFrequently: true });
+
+function showNotice(text) {
+  $noticeBox.innerHTML = text;
+  $noticeBox.classList.add('visible');
+}
+
+// iOS Safari HTTPS check
+if (!window.isSecureContext && location.protocol !== 'file:') {
+  showNotice('⚠️ Warning: iOS blocks live camera on unencrypted HTTP. Host on <b>HTTPS</b> or use the "Capture / Upload" button.');
+}
+
+$btnCamera.addEventListener('click', toggleCamera);
+$btnPhoto.addEventListener('click', () => $fileCapture.click());
+$btnReset.addEventListener('click', resetAll);
+$btnDownload.addEventListener('click', () => {
+  if (reconstructedBlob) triggerDownload(reconstructedBlob, detectedFilename);
+});
+
+$fileCapture.addEventListener('change', async e => {
+  if (!e.target.files.length) return;
+  const file = e.target.files[0];
+  const img = new Image();
+  img.onload = () => {
+    $scanCanvas.width = img.width;
+    $scanCanvas.height = img.height;
+    scanCtx.drawImage(img, 0, 0);
+    const imgData = scanCtx.getImageData(0, 0, img.width, img.height);
+    const code = jsQR(imgData.data, img.width, img.height);
+    if (code && code.data) {
+      statScanned++;
+      $statScanned.textContent = statScanned;
+      processDecode(code.data);
+    } else {
+      alert('QR Code not detected. Please take a clearer photo.');
+    }
+  };
+  img.src = URL.createObjectURL(file);
+});
+
+async function toggleCamera() {
+  if (scanning) stopCamera();
+  else await startCamera();
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showNotice('🔒 Live camera stream is unavailable without HTTPS on mobile.<br><br>👉 <b>Use the "📸 Capture / Upload" button</b>.');
+    $fileCapture.click();
+    return;
+  }
+
+  try {
+    const constraints = {
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 }
+      },
+      audio: false
+    };
+
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    $video.srcObject = stream;
+    
+    // Explicit play() call required for iOS WebKit
+    await $video.play();
+
+    $video.classList.add('active');
+    $placeholder.classList.add('hidden');
+    $cameraArea.classList.add('scanning');
+    $btnCamera.innerHTML = '⏹ Stop Camera';
+    $btnCamera.classList.remove('primary');
+    $btnReset.disabled = false;
+    scanning = true;
+    scanLoop();
+  } catch (err) {
+    console.error('Camera error:', err);
+    showNotice('Camera start error: ' + err.name + ' - ' + err.message + '<br>Use the "Capture / Upload" button instead.');
+  }
+}
+
+function stopCamera() {
+  scanning = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  $video.srcObject = null;
+  $video.classList.remove('active');
+  $placeholder.classList.remove('hidden');
+  $cameraArea.classList.remove('scanning');
+  $btnCamera.innerHTML = '📹 Live Camera';
+  $btnCamera.classList.add('primary');
+}
+
+function scanLoop() {
+  if (!scanning) return;
+
+  if ($video.readyState >= $video.HAVE_CURRENT_DATA) {
+    const scale = Math.min(1, 640 / Math.max($video.videoWidth, $video.videoHeight));
+    const sw = Math.floor($video.videoWidth * scale);
+    const sh = Math.floor($video.videoHeight * scale);
+
+    if (sw > 0 && sh > 0) {
+      $scanCanvas.width = sw;
+      $scanCanvas.height = sh;
+      scanCtx.drawImage($video, 0, 0, sw, sh);
+
+      const imgData = scanCtx.getImageData(0, 0, sw, sh);
+      const code = jsQR(imgData.data, sw, sh, { inversionAttempts: 'dontInvert' });
+
+      if (code && code.data) {
+        statScanned++;
+        $statScanned.textContent = statScanned;
+        processDecode(code.data);
+      }
+    }
+  }
+
+  rafId = requestAnimationFrame(scanLoop);
+}
+
+function flash() {
+  $cameraArea.classList.add('flash');
+  setTimeout(() => $cameraArea.classList.remove('flash'), 150);
+}
+
+function processDecode(raw) {
+  if (isComplete) return;
+
+  const parts = raw.split('|');
+  if (parts.length < 4) return;
+
+  const prefix = parts[0];
+  let filename = 'file.bin';
+  try {
+    filename = decodeURIComponent(parts[1]);
+  } catch (e) {
+    filename = parts[1];
+  }
+
+  const idxTotal = parts[2];
+  const data = parts.slice(3).join('|');
+
+  const slashIdx = idxTotal.indexOf('/');
+  if (slashIdx === -1) return;
+
+  const idx = parseInt(idxTotal.slice(0, slashIdx), 10);
+  const total = parseInt(idxTotal.slice(slashIdx + 1), 10);
+
+  if (isNaN(idx) || isNaN(total) || idx < 1 || total < 1) return;
+
+  if (expectedTotal === 0) {
+    expectedTotal = total;
+    expectedPrefix = prefix;
+    detectedFilename = filename;
+    $progressSec.classList.add('visible');
+    $fileTitle.textContent = `File: ${detectedFilename}`;
+    $chunkTotal.textContent = total;
+    $btnReset.disabled = false;
+    buildChunkGrid(total);
+  }
+
+  if (total !== expectedTotal || prefix !== expectedPrefix) return;
+
+  flash();
+
+  if (collected.has(idx)) {
+    statDups++;
+    $statDups.textContent = statDups;
+    return;
+  }
+
+  collected.set(idx, data);
+  statValid++;
+  $statValid.textContent = statValid;
+  updateProgress();
+
+  if (collected.size === expectedTotal) {
+    isComplete = true;
+    reconstruct();
+  }
+}
+
+function buildChunkGrid(total) {
+  $chunkGrid.innerHTML = '';
+  for (let i = 1; i <= total; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'chunk-cell';
+    cell.id = `cell-${i}`;
+    cell.textContent = i;
+    $chunkGrid.appendChild(cell);
+  }
+}
+
+function updateProgress() {
+  const n = collected.size;
+  const pct = Math.round((n / expectedTotal) * 100);
+  $chunkCount.textContent = n;
+  $chunkPct.textContent = `${pct}%`;
+  $progressFill.style.width = `${pct}%`;
+
+  for (const idx of collected.keys()) {
+    const cell = document.getElementById(`cell-${idx}`);
+    if (cell && !cell.classList.contains('received')) {
+      cell.classList.add('received');
+      cell.textContent = '✓';
+    }
+  }
+}
+
+function reconstruct() {
+  try {
+    const sortedChunks = [];
+    for (let i = 1; i <= expectedTotal; i++) {
+      sortedChunks.push(collected.get(i));
+    }
+    const fullBase64 = sortedChunks.join('');
+    const compressedBytes = base64ToUint8(fullBase64);
+    const decompressed = pako.ungzip(compressedBytes);
+
+    reconstructedBlob = new Blob([decompressed]);
+    $btnDownload.textContent = `📥 Download ${detectedFilename}`;
+    $btnDownload.disabled = false;
+    $doneBanner.classList.add('visible');
+    
+    // Auto-trigger download
+    triggerDownload(reconstructedBlob, detectedFilename);
+  } catch (err) {
+    console.error('Decompress error:', err);
+    alert('Failed to assemble file: ' + err.message);
+  }
+}
+
+function base64ToUint8(base64) {
+  const binary = atob(base64);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function resetAll() {
+  collected.clear();
+  expectedTotal = 0;
+  expectedPrefix = '';
+  statScanned = 0;
+  statValid = 0;
+  statDups = 0;
+  isComplete = false;
+  reconstructedBlob = null;
+  $statScanned.textContent = '0';
+  $statValid.textContent = '0';
+  $statDups.textContent = '0';
+  $chunkCount.textContent = '0';
+  $chunkTotal.textContent = '—';
+  $chunkPct.textContent = '0%';
+  $progressFill.style.width = '0%';
+  $chunkGrid.innerHTML = '';
+  $progressSec.classList.remove('visible');
+  $doneBanner.classList.remove('visible');
+  $btnDownload.disabled = true;
+  $btnDownload.textContent = '📥 Download File';
+  detectedFilename = 'file.bin';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QR File Generator</title>
+<!-- Libraries with CDN fallback -->
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script>
+  if (typeof QRCode === 'undefined') {
+    document.write('<script src="https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js"><\/script>');
+  }
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.4/pako.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a2e;
+    --surface2: #16213e;
+    --accent: #22c55e;
+    --accent-dim: #166534;
+    --text: #e4e4e7;
+    --text-dim: #71717a;
+    --border: #27272a;
+    --radius: 12px;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+
+  .container {
+    width: 100%;
+    max-width: 520px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
+    text-align: center;
+    letter-spacing: -0.02em;
+  }
+  h1 span { color: var(--accent); }
+
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    color: var(--text-dim);
+    font-size: 15px;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(34, 197, 94, 0.05);
+  }
+  .dropzone input { display: none; }
+
+  .file-info {
+    display: none;
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    font-size: 14px;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .file-info.visible { display: flex; }
+  .file-info .name { font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+  .file-info .size { color: var(--text-dim); }
+  .file-info .compressed { color: var(--accent); font-size: 13px; }
+
+  .controls {
+    display: none;
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .controls.visible { display: flex; }
+
+  .control-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+  .control-row label {
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .prefix-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 13px;
+    width: 80px;
+    outline: none;
+  }
+  .prefix-input:focus { border-color: var(--accent); }
+
+  .segmented {
+    display: flex;
+    background: var(--bg);
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .segmented button {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: 0.15s;
+    border-right: 1px solid var(--border);
+  }
+  .segmented button:last-child { border-right: none; }
+  .segmented button.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .slider-group { display: flex; align-items: center; gap: 10px; flex: 1; max-width: 250px; }
+  .slider-group input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 4px;
+  }
+  .slider-value {
+    font-size: 13px;
+    color: var(--accent);
+    min-width: 45px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .checkbox-row input[type="checkbox"] { accent-color: var(--accent); }
+
+  .stats {
+    display: none;
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: center;
+    gap: 16px;
+  }
+  .stats.visible { display: flex; justify-content: center; }
+  .stats strong { color: var(--text); }
+
+  .canvas-area {
+    display: none;
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 16px;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .canvas-area.visible { display: flex; }
+
+  .qr-wrapper {
+    background: #ffffff;
+    padding: 12px;
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-width: 320px;
+    min-height: 320px;
+  }
+
+  #qr-image {
+    width: 320px;
+    height: 320px;
+    image-rendering: pixelated;
+    display: block;
+  }
+
+  .frame-label {
+    font-size: 13px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .frame-label strong { color: var(--accent); }
+
+  .btn-row {
+    display: none;
+    justify-content: center;
+    gap: 8px;
+  }
+  .btn-row.visible { display: flex; }
+
+  .btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: 0.15s;
+  }
+  .btn:hover { border-color: var(--accent); background: var(--surface2); }
+  .btn.primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); font-weight: 500; }
+  .btn.primary:hover { background: #1a7a42; }
+
+  .error-box {
+    display: none;
+    background: #450a0a;
+    border: 1px solid #dc2626;
+    color: #fca5a5;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .error-box.visible { display: block; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><span>📁</span> QR File Generator</h1>
+
+  <div class="error-box" id="error-box"></div>
+
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="file-input">
+    Drag & Drop file here or click to browse
+  </div>
+
+  <div class="file-info" id="file-info">
+    <span class="name" id="file-name"></span>
+    <span class="size" id="file-size"></span>
+    <span class="compressed" id="file-compressed"></span>
+  </div>
+
+  <div class="controls" id="controls">
+    <div class="control-row">
+      <label>Prefix</label>
+      <input class="prefix-input" id="prefix-input" value="FILE" maxlength="8">
+      
+      <label>Density (Bytes)</label>
+      <div class="segmented" id="density-select">
+        <button data-size="450">450 (Fast)</button>
+        <button data-size="800" class="active">800 (Balanced)</button>
+        <button data-size="1300">1300 (Dense)</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <label>Redundancy</label>
+      <div class="segmented" id="redundancy-select">
+        <button data-value="1">×1</button>
+        <button data-value="2" class="active">×2</button>
+        <button data-value="3">×3</button>
+      </div>
+      
+      <label>Interval</label>
+      <div class="slider-group">
+        <input type="range" id="duration-slider" min="0.2" max="3" step="0.1" value="0.8">
+        <span class="slider-value" id="duration-value">0.8s</span>
+      </div>
+    </div>
+
+    <label class="checkbox-row">
+      <input type="checkbox" id="loop-check" checked>
+      Loop continuously
+    </label>
+  </div>
+
+  <div class="stats" id="stats">
+    <span>Chunks: <strong id="stat-chunks">—</strong></span>
+    <span>Total Frames: <strong id="stat-frames">—</strong></span>
+  </div>
+
+  <div class="canvas-area" id="canvas-area">
+    <div class="qr-wrapper">
+      <img id="qr-image" alt="QR Code">
+    </div>
+    <div class="frame-label" id="frame-label">Frame <strong>—</strong> / —  (chunk #<strong>—</strong>)</div>
+  </div>
+
+  <div class="btn-row" id="btn-row">
+    <button class="btn primary" id="btn-play">▶ Play</button>
+    <button class="btn" id="btn-prev">⏮ Previous</button>
+    <button class="btn" id="btn-next">⏭ Next</button>
+    <button class="btn" id="btn-reset">↺ Restart</button>
+  </div>
+</div>
+
+<script>
+let content = '';
+let fileName = '';
+let frames = [];
+let currentFrame = 0;
+let timer = null;
+
+const $dropzone       = document.getElementById('dropzone');
+const $fileInput      = document.getElementById('file-input');
+const $fileInfo       = document.getElementById('file-info');
+const $fileName       = document.getElementById('file-name');
+const $fileSize       = document.getElementById('file-size');
+const $fileCompressed = document.getElementById('file-compressed');
+const $controls       = document.getElementById('controls');
+const $prefixInput    = document.getElementById('prefix-input');
+const $densitySelect  = document.getElementById('density-select');
+const $redSelect      = document.getElementById('redundancy-select');
+const $durSlider      = document.getElementById('duration-slider');
+const $durValue       = document.getElementById('duration-value');
+const $loopCheck      = document.getElementById('loop-check');
+const $stats          = document.getElementById('stats');
+const $statChunks     = document.getElementById('stat-chunks');
+const $statFrames     = document.getElementById('stat-frames');
+const $canvasArea     = document.getElementById('canvas-area');
+const $qrImage        = document.getElementById('qr-image');
+const $frameLabel     = document.getElementById('frame-label');
+const $btnRow         = document.getElementById('btn-row');
+const $btnPlay        = document.getElementById('btn-play');
+const $btnPrev        = document.getElementById('btn-prev');
+const $btnNext        = document.getElementById('btn-next');
+const $btnReset       = document.getElementById('btn-reset');
+const $errorBox       = document.getElementById('error-box');
+
+function showError(msg) {
+  $errorBox.textContent = msg;
+  $errorBox.classList.add('visible');
+}
+
+function hideError() {
+  $errorBox.classList.remove('visible');
+}
+
+$dropzone.addEventListener('click', () => $fileInput.click());
+$dropzone.addEventListener('dragover', e => { e.preventDefault(); $dropzone.classList.add('dragover'); });
+$dropzone.addEventListener('dragleave', () => $dropzone.classList.remove('dragover'));
+$dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  $dropzone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+$fileInput.addEventListener('change', () => { if ($fileInput.files.length) handleFile($fileInput.files[0]); });
+
+function setupSegmented(container, callback) {
+  container.addEventListener('click', e => {
+    if (e.target.tagName !== 'BUTTON') return;
+    container.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    callback();
+  });
+}
+
+setupSegmented($densitySelect, rebuild);
+setupSegmented($redSelect, rebuild);
+
+$durSlider.addEventListener('input', () => {
+  $durValue.textContent = parseFloat($durSlider.value).toFixed(1) + 's';
+  if (timer) { stop(); start(); }
+});
+
+$prefixInput.addEventListener('input', () => rebuild());
+
+$btnPlay.addEventListener('click', () => { if (timer) stop(); else start(); });
+$btnNext.addEventListener('click', () => { stop(); currentFrame = (currentFrame + 1) % frames.length; render(); });
+$btnPrev.addEventListener('click', () => { stop(); currentFrame = (currentFrame - 1 + frames.length) % frames.length; render(); });
+$btnReset.addEventListener('click', () => { stop(); currentFrame = 0; render(); });
+
+async function handleFile(file) {
+  hideError();
+  if (typeof QRCode === 'undefined' || typeof pako === 'undefined') {
+    showError('Error: QRCode or Pako library failed to load. Check internet connection.');
+    return;
+  }
+
+  fileName = file.name;
+  $fileName.textContent = file.name;
+  $fileSize.textContent = formatSize(file.size);
+  $fileInfo.classList.add('visible');
+
+  try {
+    const raw = await file.arrayBuffer();
+    const compressed = pako.gzip(new Uint8Array(raw), { level: 9 });
+    content = await uint8ToBase64(compressed);
+
+    const ratio = (compressed.length / raw.byteLength) * 100;
+    $fileCompressed.textContent = `→ ${formatSize(compressed.length)} (${ratio.toFixed(0)}%)`;
+
+    rebuild();
+  } catch (err) {
+    showError('File compression error: ' + err.message);
+  }
+}
+
+function uint8ToBase64(uint8) {
+  return new Promise((resolve) => {
+    const blob = new Blob([uint8], { type: 'application/octet-stream' });
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result;
+      resolve(dataUrl.split(',')[1]);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+function rebuild() {
+  if (!content) return;
+  hideError();
+  stop();
+  currentFrame = 0;
+
+  const prefix = ($prefixInput.value || 'FILE').replace(/[^a-zA-Z0-9]/g, '');
+  const encodedName = encodeURIComponent(fileName);
+  const maxChunkSize = parseInt($densitySelect.querySelector('.active').dataset.size, 10);
+  const R = parseInt($redSelect.querySelector('.active').dataset.value, 10);
+
+  const chunks = [];
+  for (let i = 0; i < content.length; i += maxChunkSize) {
+    chunks.push(content.slice(i, i + maxChunkSize));
+  }
+  const total = chunks.length;
+
+  frames = [];
+  for (let rnd = 0; rnd < R; rnd++) {
+    for (let pos = 0; pos < total; pos++) {
+      const idx = ((pos + rnd) % total) + 1;
+      frames.push(`${prefix}|${encodedName}|${idx}/${total}|${chunks[idx - 1]}`);
+    }
+  }
+
+  $statChunks.textContent = total;
+  $statFrames.textContent = frames.length;
+  $stats.classList.add('visible');
+  $controls.classList.add('visible');
+  $canvasArea.classList.add('visible');
+  $btnRow.classList.add('visible');
+
+  render();
+}
+
+async function render() {
+  if (!frames.length) return;
+
+  const payload = frames[currentFrame];
+  const parts = payload.split('|');
+  const idx = parts[2].split('/')[0];
+  const total = parts[2].split('/')[1];
+
+  $frameLabel.innerHTML = `Frame <strong>${currentFrame + 1}</strong> / ${frames.length} (chunk #<strong>${idx}</strong> of ${total})`;
+
+  try {
+    const url = await QRCode.toDataURL(payload, {
+      errorCorrectionLevel: 'L',
+      margin: 1,
+      width: 320
+    });
+    $qrImage.src = url;
+  } catch (err) {
+    console.error(err);
+    showError('QR Code generation error: ' + err.message);
+  }
+}
+
+function start() {
+  if (!frames.length) return;
+  const dur = parseFloat($durSlider.value) * 1000;
+  const loop = $loopCheck.checked;
+  $btnPlay.innerHTML = '⏸ Pause';
+  $btnPlay.classList.remove('primary');
+
+  timer = setInterval(() => {
+    currentFrame++;
+    if (currentFrame >= frames.length) {
+      if (loop) {
+        currentFrame = 0;
+      } else {
+        stop();
+        currentFrame = frames.length - 1;
+        return;
+      }
+    }
+    render();
+  }, dur);
+}
+
+function stop() {
+  clearInterval(timer);
+  timer = null;
+  $btnPlay.innerHTML = '▶ Play';
+  $btnPlay.classList.add('primary');
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+</script>
+</body>
+</html>
